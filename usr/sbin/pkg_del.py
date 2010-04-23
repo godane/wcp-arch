@@ -14,14 +14,14 @@ class PkgDel:
             selection = self.listControl.get_selection()
             (model, iter) = selection.get_selected()
             id = model.get_value(iter, 0)
-            os.system("removepkg %s" %id)
+            os.system("pacman -Rd %s" %id)
             self.make_listbox(self)
             self.window.show_all()
 
 	def get_packages(self, widget):
             # getting current DNS parameters
             info = ""
-            os.system("ls /var/log/packages > /tmp/pkginfo.txt")
+            os.system("ls /var/lib/pacman/local | sed 's/-[0-9].*//g' | cut -f 2- > /tmp/pkginfo.txt")
             for line in file('/tmp/pkginfo.txt').readlines():
                 word = line.split("\n")
                 self.pkg_list.append(word[0])
