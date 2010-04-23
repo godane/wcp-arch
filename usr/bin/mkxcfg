@@ -1,0 +1,551 @@
+#!/bin/bash
+#
+# mkxcfg - make X config, using ddcxinfo and lshwd output, by z4ziggy
+# coded for the Archie project.
+#
+# inspired by mkxf86cfg by Klaus Knopper
+# heavily stripped down to bare minimum
+#
+# Modified 23-Feb-2006 to interact with hwd, by rasat
+#
+
+[ `id -u` -ne 0 ] && {
+        echo "This program must be run by the root user"
+   echo "   Login root:"
+   echo "   # su"
+   echo "   # <root password>"
+        exit 1
+}
+
+# ANSI COLORS
+NORMAL=""
+# RED: Warning message
+RED=""
+# GREEN: Success message
+GREEN=""
+# YELLOW: Attention message
+YELLOW=""
+# BLUE: System message
+BLUE=""
+# LCYAN: Found devices and modules
+LCYAN=""
+
+Usage() {
+
+ # echo "$0 <option>"
+ echo ""
+ echo -e "${LCYAN}mkxcfg ${NORMAL}<option>"
+ echo "  -d   Detect    - Video, monitor and mouse."
+ echo "  -x   X sample  - Generate X sample."
+ echo "  -a   X auto    - Generate X without dialog and sample."
+ echo ""
+}
+
+##########
+# X SAMPLE - generates a sample X configure
+##########
+
+Xsample() {
+[ -f /usr/X11R6/bin/xorgcfg ] && X_SERVER="Xorg"
+[ -f /usr/bin/xorgcfg ] && X_SERVER="Xorg"
+[ -f /usr/X11R6/bin/xorgcfg ] && X_CONFIG="xorg.conf"
+[ -f /usr/bin/xorgcfg ] && X_CONFIG="xorg.conf"
+[ -f /usr/X11R6/bin/xf86cfg ] && X_SERVER="XFree86"
+[ -f /usr/X11R6/bin/xf86cfg ] && X_CONFIG="XF86Config-4"
+
+if [ -n "$X_SERVER" ]; then
+
+# Removing if still exists from previous version.
+rm -f /etc/X11/$X_CONFIG.bak-hwd
+
+if [  ! -f /etc/X11/$X_CONFIG ]; then
+# Generate X
+DoMkxcfg
+cp -f /etc/X11/$X_CONFIG /etc/X11/$X_CONFIG.hwd
+rm -f /etc/X11/$X_CONFIG
+echo -e "${GREEN}Your sample file is ready.${NORMAL}"
+echo ""
+fi
+
+if [  -f /etc/X11/$X_CONFIG ]; then
+echo -e "${NORMAL}Generating /etc/X11/$X_CONFIG.hwd"
+rm -f /etc/X11/$X_CONFIG.hwd 2>/dev/null
+cp -f /etc/X11/$X_CONFIG /etc/X11/$X_CONFIG.tmp
+rm -f /etc/X11/$X_CONFIG
+# Generate X
+DoMkxcfg
+cp -f /etc/X11/$X_CONFIG /etc/X11/$X_CONFIG.hwd
+cp -f /etc/X11/$X_CONFIG.tmp /etc/X11/$X_CONFIG
+rm -f /etc/X11/$X_CONFIG.tmp
+echo -e "${GREEN}Your sample file is ready.${NORMAL}"
+echo ""
+fi
+
+else
+echo -e "${YELLOW}No Xserver installed!!${NORMAL}"
+
+fi
+}
+
+
+########
+# DETECT  - vide, monitor and mouse
+########
+
+Detect() {
+# Hardware detect
+if [ -f /tmp/hwd.tmp ];then
+LISTFILE=/tmp/lshwd.out
+else
+echo "Please wait..."
+if [ -f /usr/bin/lshwd ];then
+/usr/bin/lshwd -a -n -m > /tmp/lshwd.out | dmesg -n 1
+LISTFILE=/tmp/lshwd.out
+else
+echo ""
+echo -e "${YELLOW}Lshwd not installed!!"
+echo ""
+exit
+fi
+fi
+
+# Video and monitor
+if [  -a /etc/X11 ]; then
+dummy=""
+else
+echo -e "  ${BLUE}Video      :${LCYAN} XFree86 not installed."
+exit
+fi
+
+[ -f /usr/X11R6/bin/xorgcfg ] && X_SERVER="Xorg" || X_SERVER="XFree86"
+[ -f /usr/bin/xorgcfg ] && X_SERVER="Xorg" || X_SERVER="XFree86"
+X_MODULE=$(awk -F\" '/VGA compatible controller/{print $6;exit}' $LISTFILE)
+X_NAME=$(awk -F\" '/VGA compatible controller/{print $4;exit}' $LISTFILE)
+
+# Monitor data via ddcxinfo-arch
+MONITOR="$(/usr/sbin/ddcxinfo-arch -monitor)"
+RC="$?"
+COMPLETE="$(awk '/EndSection/{print}' <<EOF
+$MONITOR
+EOF)"
+
+# Extract values for display
+MODEL="$(awk '/^[	 ]*ModelName/{print;exit}'<<EOF
+$MONITOR
+EOF
+)"
+
+MODEL="${MODEL#*\"}"
+MODEL="${MODEL%\"*}"
+
+HREFRESH="$(awk '/^[	 ]*HorizSync/{print $2 $3 $4; exit}'<<EOF
+$MONITOR
+EOF
+)"
+
+VREFRESH="$(awk '/^[	 ]*VertRefresh/{print $2 $3 $4; exit}'<<EOF
+$MONITOR
+EOF
+)"
+
+MONITOR_NAME=${MODEL:-Generic Monitor}
+
+if [ -n "$X_NAME" ]; then
+echo -en "  ${BLUE}Video      : ${NORMAL}$X_NAME"
+echo -en " ${BLUE}server: ${NORMAL}$X_SERVER (${LCYAN}${X_MODULE}${NORMAL}) "
+echo -e " ${NORMAL}"
+if [ -f /usr/bin/xorgcfg ]; then
+echo -e "  ${BLUE}Driver     : ${LCYAN}xf86-video-${X_MODULE} ${NORMAL}"
+fi
+echo -en "  ${BLUE}Monitor    : ${NORMAL}$MONITOR_NAME ${NORMAL}"
+echo -e " ${LCYAN}H:${NORMAL} ${HREFRESH}kHz${LCYAN} V:${NORMAL} ${VREFRESH}Hz${NORMAL}"
+else
+echo -e "  ${BLUE}Video      : ${NORMAL}No X"
+fi
+
+# Mouse
+USB_MOUSE_NAME=$(awk -F\" '/USB Human Interface Devices/{print $4;exit}' $LISTFILE)
+USB_MOUSE_MODULE=$(awk -F\" '/USB Human Interface Devices/{print $6;exit}' $LISTFILE)
+USB_MOUSE_DEVICE=$(awk -F\" '/USB Human Interface Devices/{print $8;exit}' $LISTFILE)
+
+if [ -n "$USB_MOUSE_NAME" ]; then
+echo -e "  ${BLUE}Mouse      : ${NORMAL}$USB_MOUSE_NAME${BLUE} xtype: ${LCYAN}IMPS2 ${BLUE}module: ${LCYAN}$USB_MOUSE_MODULE ${BLUE}device: ${LCYAN}$USB_MOUSE_DEVICE${NORMAL}"
+else
+
+MOUSE_NAME=$(awk -F\" '/Mouse/{print $4;exit}' $LISTFILE)
+MOUSE_DEVICE=$(awk -F\" '/Mouse/{print $8;exit}' $LISTFILE)
+
+if [ -n "$MOUSE_NAME" ]; then
+echo -e "  ${BLUE}Mouse      : ${NORMAL}$MOUSE_NAME${BLUE} xtype: ${LCYAN}PS2 ${BLUE}device: ${LCYAN}$MOUSE_DEVICE${NORMAL}"
+else
+echo -e "  ${BLUE}Mouse      : ${NORMAL}No mouse"
+fi
+fi
+
+# For hwd man page
+if [ -f /tmp/hwd.tmp ];then
+rm -f /tmp/hwd.howto* >/dev/null 2>&1
+HOWTO="
+Video Card   : $X_NAME
+Monitor      : $MONITOR_NAME
+H kHz        : $HREFRESH
+V Hz         : $VREFRESH
+Xserver      : $X_SERVER
+Xmodule      : $X_MODULE
+"
+echo "$HOWTO" > /tmp/hwd.howto1
+
+if [ -n "$USB_MOUSE_NAME" ]; then
+HOWTO="
+Mouse        : $USB_MOUSE_NAME
+Mouse module : $USB_MOUSE_MODULE
+XType        : IMPS/2
+Device       : $USB_MOUSE_DEVICE
+"
+echo "$HOWTO" > /tmp/hwd.howto2
+fi
+
+if [ -n "$MOUSE_NAME" ]; then
+rm -f /tmp/hwd.howto2 >/dev/null 2>&1
+HOWTO="
+Mouse        : $MOUSE_NAME
+XType        : PS/2
+Device       : $MOUSE_DEVICE
+"
+echo "$HOWTO" > /tmp/hwd.howto3
+fi
+fi 
+
+echo ""
+}
+
+
+########
+# X AUTO - Generate X without dialog and sample
+########
+
+Xauto() {
+
+# Not recommended for hwd
+if [ -f /tmp/hwd.tmp ];then
+another=""; answer=""
+while test "$answer" != "n" -a "$answer" != "N"; do
+echo -e "${YELLOW}Don't use this auto option if you are unsure!!!${NORMAL}"
+echo -n "Do you want to continue (y/n)? [n] "
+another=" another"
+read answer
+case "$answer" in y*|YA*)
+echo -e "${NORMAL}Generating and installing X."
+DoMkxcfg
+echo -e "${GREEN}Ready.${NORMAL}"
+echo ""
+ break; ;; esac
+# If no selected
+echo -e "${NORMAL}"
+exit
+done
+
+else
+DoMkxcfg
+fi
+}
+
+############
+# Generate X
+############
+DoMkxcfg() {
+# some init stuff
+CMDLINE="$(cat /proc/cmdline)"
+KVER="$(uname -r)"
+LISTFILE=/tmp/lshwd.out
+XINFOTMP=/tmp/xinfo
+if [ "$X_SERVER" = "XFree86" ]; then
+XTEMPLATE=/usr/share/hwd/XFree86.template
+else
+XTEMPLATE=/usr/share/hwd/xorg7.conf.template
+XorgCFG="/usr/bin/xorgcfg"
+# If xorg version earlier than 7.x
+if [ ! -f /usr/bin/xorgcfg ]; then
+XTEMPLATE=/usr/share/hwd/xorg.conf.template
+XorgCFG="/usr/X11R6/bin/xorgcfg"
+fi
+fi
+TMPFILE="/tmp/mkxcfg-$$"
+DDCXTMPFILE="/tmp/ddcxinfo-$$"
+MONITORTMP="$TMPFILE-monitor"
+rm -f "$TMPFILE" "$MONITORTMP"
+
+if [ -f $XorgCFG ]; then
+	conf_file="xorg.conf"
+else
+        conf_file="XF86Config-4"
+fi
+
+# Reread boot command line; echo last parameter's argument or return false.
+checkbootparam()
+{
+	case "$CMDLINE" in *\ $1*) return 0;; esac
+	return 1
+}
+
+# get boot param value if available, return 1 if not
+getbootparamvalue()
+{
+	case "$CMDLINE" in *\ $1=*) ;; *) return 1; ;; esac
+	result="${CMDLINE##*$1=}"
+	echo ${result%%[     ]*}
+}
+
+# check if lshwd output files are available already, execute lshwd if not
+if [ ! -a $LISTFILE ] || [ ! -a $XINFOTMP ]; then
+	lshwd -a -ox -m > $LISTFILE
+fi
+
+# check for vga module, default to vesa
+XMODULE=$(awk -F\" '/VGA compatible controller/{print $6;exit}' $LISTFILE)
+[ -n "$XMODULE" ] || XMODULE="vesa"
+
+# Check for Framebuffer X-Modules and initialize framebuffer module
+# not needed - "lshwd -a" autoloads modules
+#case "$XMODULE" in
+#	pvr2fb) modprobe "$XMODULE" >/dev/null 2>&1 ; XMODULE="fbdev"; ;;
+#esac
+
+# # Read in what hwsetup has found for X
+# [ -f /etc/sysconfig/xserver ] && . /etc/sysconfig/xserver
+
+# Xserver, Xmodule, Xscreen, Xvrefresh, if specified by commandline
+# NEWXSERVER="$(getbootparam xserver 2>/dev/null)"
+# [ -z "$XSERVER" -a -z "$NEWXSERVER" ] && NEWXSERVER="XFree86"
+# [ -n "$NEWXSERVER" ] && { XSERVER="$NEWXSERVER" ; echo "XSERVER='$XSERVER'" >> /etc/sysconfig/knoppix ; echo "XSERVER='$XSERVER'" >> /etc/sysconfig/xserver; }
+# NEWXMODULE="$(getbootparam xmodule 2>/dev/null)"
+# [ -z "$XMODULE" -a -z "$NEWXMODULE" ] && NEWXMODULE="vesa"
+# [ -n "$NEWXMODULE" ] && { XMODULE="$NEWXMODULE" ; echo "XMODULE='$XMODULE'" >> /etc/sysconfig/knoppix ; echo "XMODULE='$XMODULE'" >> /etc/sysconfig/xserver; }
+# XSCREEN="$(getbootparam xscreen 2>/dev/null)"
+# [ -z "$XSCREEN" ] && XSCREEN="$(getbootparam screen 2>/dev/null)"
+# [ -n "$XSCREEN" ] && { echo "XSCREEN='$XSCREEN'" >> /etc/sysconfig/knoppix ; echo "XSCREEN='$XSCREEN'" >> /etc/sysconfig/xserver; }
+# XVREFRESH="$(getbootparam xvrefresh 2>/dev/null)"
+# [ -n "$XVREFRESH" ] || XVREFRESH="$(getbootparam vrefresh 2>/dev/null)"
+# [ -n "$XVREFRESH" ] || XVREFRESH="$(getbootparam xvsync 2>/dev/null)"
+# [ -n "$XVREFRESH" ] || XVREFRESH="$(getbootparam vsync 2>/dev/null)"
+# [ -n "$XVREFRESH" ] && { echo "XVREFRESH='$XVREFRESH'" >> /etc/sysconfig/knoppix ; echo "XVREFRESH='$XVREFRESH'" >> /etc/sysconfig/xserver; }
+# XHREFRESH="$(getbootparam xhrefresh 2>/dev/null)"
+# [ -n "$XHREFRESH" ] || XHREFRESH="$(getbootparam hrefresh 2>/dev/null)"
+# [ -n "$XHREFRESH" ] || XHREFRESH="$(getbootparam xhsync 2>/dev/null)"
+# [ -n "$XHREFRESH" ] || XHREFRESH="$(getbootparam hsync 2>/dev/null)"
+# [ -n "$XHREFRESH" ] && { echo "XHREFRESH='$XHREFRESH'" >> /etc/sysconfig/knoppix ; echo "XHREFRESH='$XHREFRESH'" >> /etc/sysconfig/xserver; }
+
+# Wheel
+WHEEL=""
+if checkbootparam "wheel"; then
+	WHEEL='s|"PS/2"|"IMPS/2"\
+	Option          "ZAxisMapping"          "4 5"|g;'
+elif checkbootparam "nowheel"; then
+	# Don't change the default, which is plain PS/2
+	WHEEL=""
+else
+	# Apparently, the mouse auto-protocol option works in XFree 4.3 now. Let's give it a try.
+	WHEEL='s|"PS/2"|"auto"\
+	Option          "ZAxisMapping"          "4 5"|g;'
+fi
+
+# # Read in changes
+# [ -f /etc/sysconfig/knoppix ] && . /etc/sysconfig/knoppix
+# 
+# # Read default keyboard from config file.
+# # There seems to be no reliable autoprobe possible.
+# [ -f /etc/sysconfig/keyboard ] && . /etc/sysconfig/keyboard
+# 
+# # Create mouse link and insert a mouse default type into XF86Config
+# # if not already done by hwsetup
+# [ -f /etc/sysconfig/mouse ] && . /etc/sysconfig/mouse
+# #[ -e /dev/mouse ] || ln -sf /dev/ttyS0 /dev/mouse
+# # PROTO="${XMOUSETYPE:-Auto}"
+
+MOUSEDRIVER=$(awk -F\" '/Mouse/{print $6;exit}' $LISTFILE)
+if [ "$MOUSEDRIVER" = "msintellips/2" ]; then
+	XMOUSETYPE="PS/2"
+else
+	XMOUSETYPE="IMPS/2"
+fi
+PROTO="${XMOUSETYPE:-Microsoft}"
+
+# defaults to "mouse not detected"
+PSMOUSE='s|^.*InputDevice.*"PS/2 Mouse".*$|# PS/2 Mouse not detected|g;'
+USBMOUSE='s|^.*InputDevice.*"USB Mouse".*$|# USB Mouse not detected|g;'
+SERIALMOUSE='s|^.*InputDevice.*"Serial Mouse".*$|# Serial Mouse not detected|g;'
+
+# now search for the mouse device
+MOUSEDEV=$(awk -F\" '/Mouse/{print $8;exit}' $LISTFILE)
+case $MOUSEDEV in
+	*psaux) # PS/2 mouse
+		PSMOUSE="s|/dev/psaux|$MOUSEDEV|g;"
+		;;
+	*input*) # USB mouse
+		USBMOUSE="s|/dev/input/mice|$MOUSEDEV|g;"
+		;;
+	*mouse) # Serial mouse
+		SERIALMOUSEE="s|/dev/ttyS0|$MOUSEDEV|g;"
+		;;
+	*) # using PS/2 as default
+		PSMOUSE=""
+		;;
+esac
+
+NOEMU=""
+#[ "${XEMU3}" = "no" ] && NOEMU='s|^.*Emulate3|# No 2 -> 3 Button emulation|g'
+# get KBDLANG from commandline (lang=xx)
+#KBDLANG=`sed 's|.*lang=\([^ ]*\) .*|\1|' /proc/cmdline`
+KBDLANG="$(getbootparamvalue lang 2>/dev/null)"
+# default to "us" keyboard
+XKEYBOARD="us"
+[ -n $KBDLANG ] && XKEYBOARD=$KBDLANG
+DEADKEYS=""
+[ "$XKEYBOARD" = "us" ] && DEADKEYS='s|^.*nodeadkeys.*$||g;'
+
+XSCREEN="$(getbootparamvalue xscreen 2>/dev/null)"
+
+# Build line of allowed modes
+MODES=""
+ADDMODE=""
+# Use commandline modes if specified
+[ -n "$XSCREEN" ] && ADDMODE="-firstmode $XSCREEN"
+
+# Finally, lets try to get the info via ddcxinfo-arch
+#MONITOR="$(/usr/sbin/ddcxinfo-arch -monitor)"
+#MODES="$(/usr/sbin/ddcxinfo-arch -modes $ADDMODE)"
+# this is faster - executing ddcxinfo only once
+/usr/sbin/ddcxinfo-arch -monitor -modes $ADDMODE > $DDCXTMPFILE
+MONITOR=$(head -n -1 $DDCXTMPFILE)
+MODES=$(tail -n 1 $DDCXTMPFILE)
+
+# not needed - ddcxinfo always returns default modes
+# if [ "$?" != "0" -o -z "$MODES" ]; then
+# 	MODES="Modes "
+# 	[ -n "$XSCREEN" ] && MODES="$MODES \"$XSCREEN\""
+# 	MODES="$MODES \"1024x768\" \"800x600\" \"640x480\""
+# fi
+
+XDEPTH="$(getbootparamvalue xdepth 2>/dev/null)"
+DEPTH=""
+# Use commandline colordepth if specified
+[ -n "$XDEPTH" ] && DEPTH='s|DefaultColorDepth[	].*$|DefaultColorDepth '"$XDEPTH"'|g;'
+
+# # Use commandline vertical refresh rate if specified
+# if [ -n "$XVREFRESH" ]; then
+# 	MONITOR="$(sed 's|VertRefresh[	 ].*$|VertRefresh 49.0 - '"$XVREFRESH"'|g;' <<EOF
+# 	$MONITOR
+# 	EOF
+# 	)"
+# fi
+# #`
+# #Use commandline horizontal refresh rate if specified
+# if [ -n "$XHREFRESH" ]; then
+# 	MONITOR="$(sed 's|HorizSync[	 ].*$|HorizSync 28.0 - '"$XHREFRESH"'|g;' <<EOF
+# 	$MONITOR
+# 	EOF
+# 	)"
+# fi
+# #`
+
+# # We need to check this because serial mice have long timeouts
+# SERIALMOUSE="$(ls -l1 /dev/mouse* 2>/dev/null | awk '/ttyS/{print $NF ; exit 0}')"
+# if [ -n "$SERIALMOUSE" ]; then
+# 	SERIALMOUSE="s|/dev/ttyS0|$SERIALMOUSE|g;"
+# else
+# 	SERIALMOUSE='s|^.*InputDevice.*"Serial Mouse".*$|# Serial Mouse not detected|g;'
+# fi
+# 
+# # PS/2 bug: Some keyboards are incorrectly used as mice in XFree. :-(
+# PSMOUSE="$(ls -l1 /dev/psaux* 2>/dev/null | awk '/psaux/{print $NF ; exit 0}')"
+# # -l1 /dev/mouse*
+# if [ -n "$PSMOUSE" ]; then
+# 	PSMOUSE="s|/dev/psaux|/dev/$PSMOUSE|g;"
+# else
+# 	#PSMOUSE='s|^.*InputDevice.*"PS/2 Mouse".*$|# PS/2 Mouse not detected|g;'
+# 	PSMOUSE=""
+# fi
+# 
+# # fix for usb mouse : search /dev/input/mice 1st.
+# if [ "$MOUSE_DEVICE" = "/dev/input/mice" ]; then
+# 	#USBMOUSE='s|^.*InputDevice.*"USB Mouse".*$|InputDevice    "USB Mouse" "CorePointer"|g;' 
+# 	USBMOUSE=""
+# else
+# 	case "$(cat /proc/modules)" in 
+# 		*usbmouse*|*mousedev*|*hid\ *) USBMOUSE="" ;;
+# 		*) USBMOUSE='s|^.*InputDevice.*"USB Mouse".*$|# USB Mouse not detected|g;';;
+# 	esac
+# fi
+# 
+# # Kernel 2.6 reports psaux via /dev/input/mice like USB
+# if [ -z "$PSMOUSE" ]; then
+# 	PSMOUSE='s|^.*InputDevice.*"PS/2 Mouse".*$|# PS/2 Mouse using /dev/input/mice in Kernel 2.6|g;'
+# 	USBMOUSE=""
+# fi
+
+# Write Monitor data now
+rm -f "$MONITORTMP"
+echo "$MONITOR" >"$MONITORTMP"
+
+if [ -f /etc/X11/$conf_file ]; then 
+	cp /etc/X11/$conf_file /etc/X11/$conf_file.bak
+fi
+rm -f /etc/$conf_file /etc/X11/$conf_file 2>/dev/null
+
+# VMWare special handling
+VMWARE=""
+if [ "$XMODULE" = "vmware" ]; then
+	VMWARE='s|^.*BusID.*PCI.*$|BusID "PCI:0:15:0"|g;'
+	DEPTH='s|DefaultColorDepth |# DefaultColorDepth |g;'
+fi
+
+# Do NOT use a default colordepth setting if we are using the "fbdev" module
+if [ "$XMODULE" = "fbdev" ]; then
+	DEPTH='s|DefaultColorDepth |# DefaultColorDepth |g;'
+fi
+
+# These drivers need the sw_cursor option
+SWCURSOR=""
+case "$XMODULE" in ati|radeon|nv|trident) 
+	SWCURSOR='s|^.*#Option.*"sw_cursor".*$|Option "sw_cursor"|g;';; 
+esac
+
+# We must use NoPM, because some machines freeze if Power management is being activated.
+NOPM=""
+DPMS=""
+checkbootparam noapm && NOPM='Option "NoPM" "true"' || DPMS='Option "DPMS" "true"'
+
+sed -e 's|@@PROTOCOL@@|'"$PROTO"'|g;'"$NOEMU" \
+	-e '/@@MONITORSECTION@@/r '"$MONITORTMP" \
+	-e 's|@@MONITORSECTION@@||g' \
+	-e 's|@@NOPM@@|'"$NOPM"'|g' \
+	-e '/@@DISPLAYSECTION@@/r '"$XINFOTMP" \
+	-e 's|@@DISPLAYSECTION@@||g;'"$VMWARE""$SERIALMOUSE""$USBMOUSE""$PSMOUSE""$SWCURSOR""$WHEEL" \
+	-e 's|@@MODES@@|'"$MODES"'|g;'"$DEPTH" \
+	-e 's|"XkbLayout" *"[^"]*"|"XkbLayout" "'"$XKEYBOARD"'"|g;'"$DEADKEYS" \
+	$XTEMPLATE >/etc/X11/$conf_file
+
+if [ -n "$DPMS" ]; then
+	sed -e 's|Identifier[  ]*"Monitor0"|Identifier "Monitor0"\
+		'"$DPMS"'|g' /etc/X11/$conf_file >/etc/X11/$conf_file.new
+	mv -f /etc/X11/$conf_file.new /etc/X11/$conf_file
+fi
+
+# clean your room!
+rm -f "$DDCXTMPFILE" "$LISTFILE" "$XINFOTMP" "$TMPFILE" "$MONITORTMP" 2>/dev/null
+
+}
+
+#########
+# OPTIONS
+#########
+
+case $1 in
+ -d) Detect ;;
+ -x) Xsample ;;
+ -a) Xauto ;;
+ *) Usage
+  exit 0
+  ;;
+esac
+
