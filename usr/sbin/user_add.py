@@ -107,9 +107,9 @@ class UserAdd:
 		label6 = gtk.Label("Extra groups:    ")
 		label6.set_line_wrap(True)
 		hbox6.pack_start(label6, True, False, 10)
-		self.groups = gtk.Entry(80)
+		self.groups = gtk.Entry(100)
 		self.groups.set_size_request(180, 25)
-		self.groups.set_text("users,floppy,audio,video,cdrom,games,plugdev,power,scanner")
+		self.groups.set_text("users,floppy,audio,optical,storage,disk,video,games,power,scanner,hal,dbus,vboxusers")
 		hbox6.pack_start(self.groups, True, False, 10)
 		vbox.pack_start(hbox6, True, False, 5)
 		

@@ -36,43 +36,10 @@ class Administrator:
 	def close_help (self):
             window.destroy()
 	
-	os.system('lshwd > /tmp/hwdata.txt')
-	file = open('/tmp/hwdata.txt')
-        lines = file.read()
-        file.close()
-	
-        window = gtk.Window(gtk.WINDOW_TOPLEVEL)
-        window.set_size_request(720, 320)
-        window.set_position(gtk.WIN_POS_CENTER)
-        window.set_resizable(False)
-        window.set_title("Wolvix Hardware Information")
-        window.set_border_width(10)
-
-        fixed = gtk.Fixed()
-  
-        sw = gtk.ScrolledWindow()
-        sw.set_shadow_type(gtk.SHADOW_IN)
-        sw.set_size_request(670, 260)
-        sw.set_policy(gtk.POLICY_NEVER, gtk.POLICY_AUTOMATIC)
-        textview = gtk.TextView()
-        textview.set_wrap_mode(gtk.WRAP_WORD)
-        textbuffer = gtk.TextBuffer()
-        textbuffer.set_text(lines)
-        textview.set_buffer(textbuffer)
-        textview.show()
-        sw.add(textview)
-        sw.show()
-        fixed.put(sw, 15, 15) 
-        
-        button = gtk.Button("Close")
-        button.set_size_request(80, 30)
-        button.connect("clicked", close_help)
-        button.show()
-        fixed.put(button, 320, 280)
-        fixed.show()
-        window.add(fixed)
-
-        window.show()
+	os.system('xterm -e "hwd -s && /bin/bash"')
+	#file = open('/tmp/hwdata.txt')
+        #lines = file.read()
+        #file.close()
 
     def hd_install(self, widget, event=None):
         installer = WolvixInstall()
